@@ -1,50 +1,59 @@
+const DEFAULT_REPO = "icenturyw/chatgpt-github-confirmer";
+const REPO_PATTERN = /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i;
+
+function normalizeRepo(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^https?:\/\/github\.com\//i, "")
+    .replace(/^github\.com\//i, "")
+    .replace(/\/+$/g, "")
+    .toLowerCase();
+}
+
+function uniqueRepos(values) {
+  return Array.from(new Set((values || [])
+    .map(normalizeRepo)
+    .filter((repo) => REPO_PATTERN.test(repo))))
+    .sort();
+}
+
+function defaultRule() {
+  return {
+    enabled: true,
+    repo: DEFAULT_REPO,
+    branch: "",
+    file: "*"
+  };
+}
+
+function normalizeRule(rule) {
+  const repo = normalizeRepo(rule?.repo);
+  if (!repo || !REPO_PATTERN.test(repo)) return null;
+
+  return {
+    enabled: rule.enabled !== false,
+    repo,
+    branch: String(rule.branch || "").trim(),
+    file: String(rule.file || "*").trim() || "*"
+  };
+}
+
 chrome.runtime.onInstalled.addListener(async () => {
   const existing = await chrome.storage.sync.get(["rules", "autoConfig"]);
-  const repos = Array.from(new Set([
-    ...((existing.autoConfig?.repos || []).map((repo) => String(repo).trim().toLowerCase()).filter(Boolean)),
-    "icenturyw/video2subtitles-desktop"
-  ]));
+  const hasAutoConfig = Boolean(existing.autoConfig);
+  const hasRules = Array.isArray(existing.rules);
+  const updates = {};
 
-  await chrome.storage.sync.set({
-    autoConfig: {
-      allowAllRepos: Boolean(existing.autoConfig?.allowAllRepos),
-      repos
-    }
-  });
+  updates.autoConfig = {
+    allowAllRepos: Boolean(existing.autoConfig?.allowAllRepos),
+    repos: hasAutoConfig ? uniqueRepos(existing.autoConfig?.repos || []) : [DEFAULT_REPO]
+  };
 
-  if (existing.rules) {
-    const hasRepoWideRule = existing.rules.some((rule) =>
-      rule?.repo === "icenturyw/video2subtitles-desktop"
-      && !rule?.branch
-      && (rule?.file === "*" || !rule?.file)
-    );
+  updates.rules = hasRules
+    ? existing.rules.map(normalizeRule).filter(Boolean)
+    : [defaultRule()];
 
-    if (!hasRepoWideRule) {
-      await chrome.storage.sync.set({
-        rules: [
-          ...existing.rules,
-          {
-            enabled: true,
-            repo: "icenturyw/video2subtitles-desktop",
-            branch: "",
-            file: "*"
-          }
-        ]
-      });
-    }
-    return;
-  }
-
-  await chrome.storage.sync.set({
-    rules: [
-      {
-        enabled: true,
-        repo: "icenturyw/video2subtitles-desktop",
-        branch: "",
-        file: "*"
-      }
-    ]
-  });
+  await chrome.storage.sync.set(updates);
 });
 
 chrome.commands.onCommand.addListener(async (command) => {
@@ -53,5 +62,12 @@ chrome.commands.onCommand.addListener(async (command) => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) return;
 
-  chrome.tabs.sendMessage(tab.id, { type: "CONFIRM_ALLOWED_GITHUB_ACTION" });
+  try {
+    await chrome.tabs.sendMessage(tab.id, { type: "CONFIRM_ALLOWED_GITHUB_ACTION" });
+  } catch (error) {
+    const message = String(error?.message || error);
+    if (!message.includes("Receiving end does not exist")) {
+      console.warn("ChatGPT GitHub Confirmer command failed:", error);
+    }
+  }
 });
