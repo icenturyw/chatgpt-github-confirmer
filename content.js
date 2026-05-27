@@ -244,10 +244,11 @@
     ];
 
     return candidates
+      .map((node) => normalizeDialogCandidate(node))
+      .filter(Boolean)
       .filter((node) => {
         if (seen.has(node)) return false;
         seen.add(node);
-        if (!isLikelyDialogCandidate(node)) return false;
         const text = normalizeText(node.innerText);
         return looksLikeGithubConfirmationText(text);
       })
@@ -266,9 +267,9 @@
 
       let node = button.parentElement;
       let depth = 0;
-      while (node && node !== document.body && depth < 8) {
+      while (node && node !== document.body && depth < 12) {
         const nodeText = normalizeText(node.innerText);
-        if (isLikelyDialogCandidate(node) && looksLikeGithubConfirmationText(nodeText) && findConfirmButton(node, { allowFallback: false })) {
+        if (looksLikeGithubConfirmationText(nodeText)) {
           candidates.push(node);
           break;
         }
@@ -277,6 +278,27 @@
       }
     }
     return candidates;
+  }
+
+  function normalizeDialogCandidate(seed) {
+    if (!seed || seed === document.body || seed === document.documentElement) return null;
+
+    const candidates = [];
+    let node = seed;
+    let depth = 0;
+    while (node && node !== document.body && depth < 12) {
+      const text = normalizeText(node.innerText);
+      if (looksLikeGithubConfirmationText(text) && isSafeDialogScope(node)) {
+        candidates.push(node);
+      }
+      node = node.parentElement;
+      depth += 1;
+    }
+
+    if (!candidates.length) return null;
+
+    const withAction = candidates.find((candidate) => hasDialogActionEvidence(candidate));
+    return withAction || candidates[0];
   }
 
   function looksLikeGithubConfirmationText(text) {
@@ -339,13 +361,11 @@
     return isLeftRail || isRightRail;
   }
 
-  function isLikelyDialogCandidate(element) {
+  function isSafeDialogScope(element) {
     if (!isVisibleElement(element)) return false;
     if (element === document.body || element === document.documentElement) return false;
     if (element.closest?.(`#${BAR_ID}`)) return false;
     if (isInsideSidebar(element) || isSidebarShapedElement(element)) return false;
-
-    if (isExplicitDialogElement(element)) return true;
 
     const rect = element.getBoundingClientRect();
     const style = window.getComputedStyle(element);
@@ -360,15 +380,19 @@
       && rect.top <= centerY
       && rect.bottom >= centerY;
     const hasDialogSize = rect.width >= 280
-      && rect.height >= 120
+      && rect.height >= 80
       && rect.width <= viewportWidth * 0.95
       && rect.height <= viewportHeight * 0.95;
     const isAppShell = rect.width >= viewportWidth * 0.95 && rect.height >= viewportHeight * 0.95;
 
-    return style.position === "fixed"
-      && coversViewportCenter
-      && hasDialogSize
-      && !isAppShell;
+    if (isAppShell || !hasDialogSize || !coversViewportCenter) return false;
+    if (isExplicitDialogElement(element)) return true;
+
+    return style.position === "fixed" || hasDialogActionEvidence(element);
+  }
+
+  function isLikelyDialogCandidate(element) {
+    return isSafeDialogScope(element);
   }
 
   function scoreDialogCandidate(node) {
@@ -396,6 +420,16 @@
       .filter(isVisibleButton);
   }
 
+  function hasDialogActionEvidence(container) {
+    const buttons = getButtons(container);
+    if (!buttons.length || buttons.length > 8) return false;
+
+    const hasConfirm = Boolean(findButton(container, CONFIRM_LABELS));
+    const hasDeny = Boolean(findButton(container, DENY_LABELS));
+    const hasDetails = Boolean(findButton(container, DETAILS_LABELS));
+    return hasConfirm || hasDeny || hasDetails;
+  }
+
   function findButton(container, labels) {
     const buttons = getButtons(container);
     return buttons.find((button) => labels.some((label) => buttonText(button) === label))
@@ -409,9 +443,7 @@
     if (!allowFallback) return null;
 
     const buttons = getButtons(container);
-    const hasDialogActionEvidence = buttons.length <= 6
-      && (Boolean(findButton(container, DENY_LABELS)) || Boolean(findButton(container, DETAILS_LABELS)));
-    if (!hasDialogActionEvidence) return null;
+    if (!hasDialogActionEvidence(container)) return null;
 
     const nonDenyButtons = buttons.filter((button) => {
       const text = buttonText(button);
