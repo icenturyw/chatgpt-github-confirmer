@@ -306,8 +306,11 @@
       && includesFolded(text, "GitHub")
       && (
         includesFolded(text, "Update GitHub file")
+        || includesFolded(text, "Update GitHub issue")
+        || includesFolded(text, "Create a commit")
         || includesFolded(text, "Create")
         || includesFolded(text, "repository")
+        || includesFolded(text, "on branch")
         || includesFolded(text, "共享数据包括")
         || includesFolded(text, "使用工具存在风险")
         || includesFolded(text, "AccessTokens")
@@ -324,7 +327,8 @@
     return isVisibleElement(button);
   }
 
-  function isVisibleElement(element) {
+  function isVisibleElement(element, options = {}) {
+    const { requirePointerEvents = true } = options;
     if (!element) return false;
     const rect = element.getBoundingClientRect();
     const style = window.getComputedStyle(element);
@@ -332,7 +336,11 @@
       && rect.height > 0
       && style.display !== "none"
       && style.visibility !== "hidden"
-      && style.pointerEvents !== "none";
+      && (!requirePointerEvents || style.pointerEvents !== "none");
+  }
+
+  function isVisibleScopeElement(element) {
+    return isVisibleElement(element, { requirePointerEvents: false });
   }
 
   function isExplicitDialogElement(element) {
@@ -362,10 +370,14 @@
   }
 
   function isSafeDialogScope(element) {
-    if (!isVisibleElement(element)) return false;
+    if (!isVisibleScopeElement(element)) return false;
     if (element === document.body || element === document.documentElement) return false;
     if (element.closest?.(`#${BAR_ID}`)) return false;
     if (isInsideSidebar(element) || isSidebarShapedElement(element)) return false;
+
+    const text = normalizeText(element.innerText);
+    const hasGithubConfirmationText = looksLikeGithubConfirmationText(text);
+    if (!hasGithubConfirmationText) return false;
 
     const rect = element.getBoundingClientRect();
     const style = window.getComputedStyle(element);
@@ -379,16 +391,22 @@
       && rect.right >= centerX
       && rect.top <= centerY
       && rect.bottom >= centerY;
-    const hasDialogSize = rect.width >= 280
-      && rect.height >= 80
-      && rect.width <= viewportWidth * 0.95
-      && rect.height <= viewportHeight * 0.95;
-    const isAppShell = rect.width >= viewportWidth * 0.95 && rect.height >= viewportHeight * 0.95;
+    const hasDialogSize = rect.width >= 260
+      && rect.height >= 70
+      && rect.width <= viewportWidth * 0.96
+      && rect.height <= viewportHeight * 0.96;
+    const isAppShell = rect.width >= viewportWidth * 0.96 && rect.height >= viewportHeight * 0.96;
+    const hasActions = hasDialogActionEvidence(element);
 
-    if (isAppShell || !hasDialogSize || !coversViewportCenter) return false;
+    if (isAppShell || !hasDialogSize) return false;
     if (isExplicitDialogElement(element)) return true;
 
-    return style.position === "fixed" || hasDialogActionEvidence(element);
+    // ChatGPT sometimes splits the visible modal into nested non-fixed containers. In that
+    // layout, the nearest text+button scope may not cover the viewport center, but it is
+    // still safe if it contains GitHub confirmation text and explicit dialog actions.
+    if (hasActions) return true;
+
+    return coversViewportCenter && style.position === "fixed";
   }
 
   function isLikelyDialogCandidate(element) {
@@ -422,12 +440,17 @@
 
   function hasDialogActionEvidence(container) {
     const buttons = getButtons(container);
-    if (!buttons.length || buttons.length > 8) return false;
+    if (!buttons.length || buttons.length > 12) return false;
 
     const hasConfirm = Boolean(findButton(container, CONFIRM_LABELS));
     const hasDeny = Boolean(findButton(container, DENY_LABELS));
     const hasDetails = Boolean(findButton(container, DETAILS_LABELS));
-    return hasConfirm || hasDeny || hasDetails;
+    return hasConfirm && (hasDeny || hasDetails);
+  }
+
+  function buttonMatchesLabels(button, labels) {
+    const text = buttonText(button);
+    return labels.some((label) => text === label || includesFolded(text, label));
   }
 
   function findButton(container, labels) {
@@ -454,6 +477,60 @@
     return nonDenyButtons.at(-1) || null;
   }
 
+  function repoMatchesText(text, repo) {
+    const normalizedRepo = normalizeRepo(repo);
+    if (!normalizedRepo) return false;
+    return extractRepository(text) === normalizedRepo || includesFolded(text, normalizedRepo);
+  }
+
+  function isSameMatchedDialog(text, match) {
+    if (!match?.rule || !ruleMatches(text, match.rule)) return false;
+    return !match.repo || repoMatchesText(text, match.repo) || repoMatchesText(text, match.rule.repo);
+  }
+
+  function findFreshMatchingDialog(match) {
+    if (!match?.rule) return null;
+    return getDialogCandidates().find((dialog) => isSameMatchedDialog(normalizeText(dialog.innerText), match)) || null;
+  }
+
+  function findMatchingScopeFromButton(button, match) {
+    let node = button?.parentElement;
+    let depth = 0;
+    while (node && node !== document.body && depth < 16) {
+      const text = normalizeText(node.innerText);
+      if (looksLikeGithubConfirmationText(text) && isSafeDialogScope(node) && isSameMatchedDialog(text, match)) {
+        return node;
+      }
+      node = node.parentElement;
+      depth += 1;
+    }
+    return null;
+  }
+
+  function findConfirmButtonForMatch(match) {
+    const scopes = [];
+    const freshDialog = findFreshMatchingDialog(match);
+    if (freshDialog) scopes.push(freshDialog);
+    if (match?.dialog?.isConnected) scopes.push(match.dialog);
+
+    for (const scope of [...new Set(scopes)]) {
+      const explicit = findConfirmButton(scope, { allowFallback: false });
+      if (explicit) return { button: explicit, dialog: scope };
+    }
+
+    for (const button of getButtons(document)) {
+      if (isInsideSidebar(button) || !buttonMatchesLabels(button, CONFIRM_LABELS)) continue;
+      const scope = findMatchingScopeFromButton(button, match);
+      if (scope) return { button, dialog: scope };
+    }
+
+    for (const scope of [...new Set(scopes)]) {
+      const fallback = findConfirmButton(scope);
+      if (fallback) return { button: fallback, dialog: scope };
+    }
+
+    return { button: null, dialog: freshDialog || match?.dialog || null };
+  }
 
   function activateElement(element) {
     const rect = element.getBoundingClientRect();
@@ -673,21 +750,33 @@
   }
 
   function waitAndClickConfirm(match) {
-    if (!match?.dialog?.isConnected || pendingClicks.has(match.dialog)) return;
+    if (!match?.rule) return;
 
-    pendingClicks.add(match.dialog);
+    const initialDialog = match.dialog?.isConnected ? match.dialog : findFreshMatchingDialog(match);
+    if (!initialDialog || pendingClicks.has(initialDialog)) return;
+
+    match.dialog = initialDialog;
+    pendingClicks.add(initialDialog);
+    const pendingDialog = initialDialog;
     const startedAt = Date.now();
 
     const tryClick = () => {
-      if (!match.dialog.isConnected || clickedDialogs.has(match.dialog)) {
-        pendingClicks.delete(match.dialog);
+      const currentDialog = match.dialog?.isConnected ? match.dialog : findFreshMatchingDialog(match);
+      if (currentDialog) match.dialog = currentDialog;
+
+      if (currentDialog && clickedDialogs.has(currentDialog)) {
+        pendingClicks.delete(pendingDialog);
+        pendingClicks.delete(currentDialog);
         return;
       }
 
-      const latestButton = findConfirmButton(match.dialog);
+      const { button: latestButton, dialog: latestDialog } = findConfirmButtonForMatch(match);
       const latestText = buttonText(latestButton).toLowerCase();
       if (latestButton && latestText !== "x" && latestText !== "×" && isClickableButton(latestButton)) {
+        const clickedDialog = latestDialog || currentDialog || match.dialog;
+        clickedDialogs.add(clickedDialog);
         clickedDialogs.add(match.dialog);
+        pendingClicks.delete(pendingDialog);
         pendingClicks.delete(match.dialog);
         activateElement(latestButton);
         removeBar();
@@ -695,6 +784,7 @@
       }
 
       if (Date.now() - startedAt >= CLICK_TIMEOUT_MS) {
+        pendingClicks.delete(pendingDialog);
         pendingClicks.delete(match.dialog);
         renderBar({
           ...match,
