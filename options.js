@@ -1,5 +1,4 @@
-const DEFAULT_REPO = "icenturyw/chatgpt-github-confirmer";
-const REPO_PATTERN = /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i;
+const { normalizeRule, defaultRule } = GHC;
 
 const tbody = document.getElementById("rules");
 const statusNode = document.getElementById("status");
@@ -27,42 +26,12 @@ function escapeAttr(value) {
     .replaceAll("'", "&#039;");
 }
 
-function normalizeRepo(value) {
-  return String(value || "")
-    .trim()
-    .replace(/^https?:\/\/github\.com\//i, "")
-    .replace(/^github\.com\//i, "")
-    .replace(/\/+$/g, "")
-    .toLowerCase();
-}
-
 function showStatus(message) {
   statusNode.textContent = message;
   if (statusTimer) clearTimeout(statusTimer);
   statusTimer = setTimeout(() => {
     statusNode.textContent = "";
   }, 1800);
-}
-
-function defaultRule() {
-  return {
-    enabled: true,
-    repo: DEFAULT_REPO,
-    branch: "",
-    file: "*"
-  };
-}
-
-function normalizeRule(rule) {
-  const repo = normalizeRepo(rule?.repo);
-  if (!repo || !REPO_PATTERN.test(repo)) return null;
-
-  return {
-    enabled: rule.enabled !== false,
-    repo,
-    branch: String(rule.branch || "").trim(),
-    file: String(rule.file || "*").trim() || "*"
-  };
 }
 
 async function load() {
@@ -102,6 +71,7 @@ document.getElementById("save").addEventListener("click", async () => {
 });
 
 document.getElementById("clear-trust").addEventListener("click", async () => {
+  if (!window.confirm("Clear all remembered approvals? This cannot be undone.")) return;
   await chrome.storage.local.set({ trustedRules: {} });
   showStatus("Remembered approvals cleared");
 });

@@ -1,42 +1,6 @@
-const DEFAULT_REPO = "icenturyw/chatgpt-github-confirmer";
-const REPO_PATTERN = /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i;
+importScripts("shared.js");
 
-function normalizeRepo(value) {
-  return String(value || "")
-    .trim()
-    .replace(/^https?:\/\/github\.com\//i, "")
-    .replace(/^github\.com\//i, "")
-    .replace(/\/+$/g, "")
-    .toLowerCase();
-}
-
-function uniqueRepos(values) {
-  return Array.from(new Set((values || [])
-    .map(normalizeRepo)
-    .filter((repo) => REPO_PATTERN.test(repo))))
-    .sort();
-}
-
-function defaultRule() {
-  return {
-    enabled: true,
-    repo: DEFAULT_REPO,
-    branch: "",
-    file: "*"
-  };
-}
-
-function normalizeRule(rule) {
-  const repo = normalizeRepo(rule?.repo);
-  if (!repo || !REPO_PATTERN.test(repo)) return null;
-
-  return {
-    enabled: rule.enabled !== false,
-    repo,
-    branch: String(rule.branch || "").trim(),
-    file: String(rule.file || "*").trim() || "*"
-  };
-}
+const { DEFAULT_REPO, uniqueRepos, normalizeRule, defaultRule } = GHC;
 
 chrome.runtime.onInstalled.addListener(async () => {
   const existing = await chrome.storage.sync.get(["rules", "autoConfig"]);

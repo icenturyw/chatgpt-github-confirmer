@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT GitHub Confirmer",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "Configurable auto-approval helper for ChatGPT GitHub confirmations.",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
@@ -17,7 +17,7 @@
         "https://chatgpt.com/*",
         "https://chat.openai.com/*"
       ],
-      "js": ["content.js"],
+      "js": ["shared.js", "content.js"],
       "run_at": "document_idle"
     }
   ],

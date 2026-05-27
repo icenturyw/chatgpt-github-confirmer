@@ -1,8 +1,16 @@
 (() => {
-  const DEFAULT_REPO = "icenturyw/chatgpt-github-confirmer";
+  const {
+    DEFAULT_REPO,
+    normalizeText,
+    normalizeRepo,
+    isValidRepo,
+    uniqueRepos: normalizeRepoList,
+    normalizeRule: normalizeStoredRule,
+    defaultRule
+  } = GHC;
+
   const BAR_ID = "chatgpt-github-confirmer-bar";
   const HIGHLIGHT_ATTR = "data-chatgpt-github-confirmer";
-  const REPO_PATTERN = /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i;
   const CONFIRM_LABELS = ["确认", "Confirm", "Update", "Save", "Continue", "Allow"];
   const DENY_LABELS = ["拒绝", "Cancel", "Deny"];
   const DETAILS_LABELS = ["详细信息", "Details", "Show details"];
@@ -14,31 +22,8 @@
   const clickedDialogs = new WeakSet();
   const pendingClicks = new WeakSet();
 
-  function normalizeText(value) {
-    return (value || "").replace(/\s+/g, " ").trim();
-  }
-
   function includesFolded(haystack, needle) {
     return normalizeText(haystack).toLowerCase().includes(normalizeText(needle).toLowerCase());
-  }
-
-  function normalizeRepo(value) {
-    return normalizeText(value)
-      .replace(/^https?:\/\/github\.com\//i, "")
-      .replace(/^github\.com\//i, "")
-      .replace(/\/+$/g, "")
-      .toLowerCase();
-  }
-
-  function isValidRepo(value) {
-    return REPO_PATTERN.test(value);
-  }
-
-  function normalizeRepoList(values) {
-    return Array.from(new Set((values || [])
-      .map(normalizeRepo)
-      .filter(isValidRepo)))
-      .sort();
   }
 
   function isWildcard(value) {
@@ -46,24 +31,23 @@
     return !normalized || normalized === "*";
   }
 
-  function defaultRule() {
-    return {
-      enabled: true,
-      repo: DEFAULT_REPO,
-      branch: "",
-      file: "*"
-    };
-  }
-
   function normalizeRule(rule) {
-    const normalizedRepo = normalizeRepo(rule?.repo);
-    if (!normalizedRepo || (normalizedRepo !== "*" && !isValidRepo(normalizedRepo))) return null;
+    if (rule?.allowAllRepos || normalizeText(rule?.repo) === "*") {
+      return {
+        enabled: rule.enabled !== false,
+        repo: "*",
+        branch: "",
+        file: "*",
+        autoConfigured: Boolean(rule.autoConfigured),
+        allowAllRepos: true
+      };
+    }
+
+    const normalizedRule = normalizeStoredRule(rule);
+    if (!normalizedRule) return null;
 
     return {
-      enabled: rule.enabled !== false,
-      repo: normalizedRepo,
-      branch: normalizeText(rule.branch),
-      file: normalizeText(rule.file) || "*",
+      ...normalizedRule,
       autoConfigured: Boolean(rule.autoConfigured),
       allowAllRepos: Boolean(rule.allowAllRepos)
     };
