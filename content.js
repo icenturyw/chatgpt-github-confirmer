@@ -14,6 +14,9 @@
   const CONFIRM_LABELS = ["确认", "Confirm", "Update", "Save", "Continue", "Allow"];
   const DENY_LABELS = ["拒绝", "Cancel", "Deny"];
   const DETAILS_LABELS = ["详细信息", "Details", "Show details"];
+  const INITIAL_CLICK_DELAY_MS = 3000;
+  const CLICK_RETRY_INTERVAL_MS = 1000;
+  const CLICK_TIMEOUT_MS = 12000;
 
   let lastMatch = null;
   let observer = null;
@@ -246,7 +249,7 @@
         seen.add(node);
         if (!isLikelyDialogCandidate(node)) return false;
         const text = normalizeText(node.innerText);
-        return looksLikeGithubConfirmationText(text) && findConfirmButton(node);
+        return looksLikeGithubConfirmationText(text);
       })
       .sort((a, b) => scoreDialogCandidate(b) - scoreDialogCandidate(a));
   }
@@ -419,9 +422,6 @@
     return nonDenyButtons.at(-1) || null;
   }
 
-  function findDetailsButton(container) {
-    return findButton(container, DETAILS_LABELS);
-  }
 
   function activateElement(element) {
     const rect = element.getBoundingClientRect();
@@ -608,15 +608,9 @@
       if (!rule) continue;
       const repo = rule.allowAllRepos ? extractRepository(text) : normalizeRepo(rule.repo);
 
-      const confirmButton = findConfirmButton(dialog);
-      if (!confirmButton) continue;
-
-      const confirmText = buttonText(confirmButton).toLowerCase();
-      if (confirmText === "x" || confirmText === "×") continue;
-
       match = {
         dialog,
-        confirmButton,
+        confirmButton: null,
         repo,
         rule,
         trusted: rule.autoConfigured || isTrustedRule(rule, trustedRules)
@@ -651,8 +645,6 @@
 
     pendingClicks.add(match.dialog);
     const startedAt = Date.now();
-    const timeoutMs = 12000;
-    let detailsClicked = false;
 
     const tryClick = () => {
       if (!match.dialog.isConnected || clickedDialogs.has(match.dialog)) {
@@ -670,15 +662,7 @@
         return;
       }
 
-      if (!detailsClicked && Date.now() - startedAt > 600) {
-        const detailsButton = findDetailsButton(match.dialog);
-        if (detailsButton && isClickableButton(detailsButton)) {
-          detailsClicked = true;
-          activateElement(detailsButton);
-        }
-      }
-
-      if (Date.now() - startedAt >= timeoutMs) {
+      if (Date.now() - startedAt >= CLICK_TIMEOUT_MS) {
         pendingClicks.delete(match.dialog);
         renderBar({
           ...match,
@@ -687,10 +671,10 @@
         return;
       }
 
-      setTimeout(tryClick, 300);
+      setTimeout(tryClick, CLICK_RETRY_INTERVAL_MS);
     };
 
-    setTimeout(tryClick, 150);
+    setTimeout(tryClick, INITIAL_CLICK_DELAY_MS);
   }
 
   function runScan() {
