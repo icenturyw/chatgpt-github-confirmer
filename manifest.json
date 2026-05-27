@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "ChatGPT GitHub Confirmer",
+  "version": "1.1.2",
+  "description": "Configurable auto-approval helper for ChatGPT GitHub confirmations.",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options.html",
+  "commands": {
+    "confirm_allowed_github_action": {
+      "suggested_key": {
+        "default": "Alt+Shift+Y"
+      },
+      "description": "Confirm the currently visible allowed GitHub action"
+    }
+  },
+  "action": {
+    "default_title": "ChatGPT GitHub Confirmer",
+    "default_popup": "popup.html"
+  }
+}

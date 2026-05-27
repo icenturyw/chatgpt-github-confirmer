@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ChatGPT GitHub Confirmer</title>
+    <style>
+      body {
+        width: 360px;
+        margin: 0;
+        color: #111827;
+        background: #f8fafc;
+        font: 13px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      main {
+        padding: 14px;
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-size: 17px;
+      }
+      label {
+        font-weight: 700;
+      }
+      .toggle {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 10px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: white;
+      }
+      .hint {
+        margin: 4px 0 0;
+        color: #64748b;
+      }
+      .danger {
+        color: #b91c1c;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+      }
+      input[type="text"] {
+        min-width: 0;
+        flex: 1;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 8px;
+        font: inherit;
+      }
+      button {
+        border: 0;
+        border-radius: 6px;
+        padding: 8px 10px;
+        background: #2563eb;
+        color: white;
+        cursor: pointer;
+        font-weight: 700;
+      }
+      button.secondary {
+        background: #475569;
+      }
+      button.danger-button {
+        background: #dc2626;
+      }
+      ul {
+        list-style: none;
+        padding: 0;
+        margin: 12px 0 0;
+        max-height: 180px;
+        overflow: auto;
+      }
+      li {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 0;
+        border-top: 1px solid #e2e8f0;
+      }
+      code {
+        overflow-wrap: anywhere;
+      }
+      #status {
+        min-height: 18px;
+        margin-top: 10px;
+        color: #15803d;
+      }
+      .footer {
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>ChatGPT GitHub Confirmer</h1>
+
+      <div class="toggle">
+        <input id="allow-all" type="checkbox">
+        <div>
+          <label for="allow-all">Auto-allow all GitHub repositories</label>
+          <p class="hint danger">When enabled, any ChatGPT GitHub confirmation can be accepted automatically.</p>
+        </div>
+      </div>
+
+      <div class="row">
+        <input id="repo-input" type="text" placeholder="owner/repository">
+        <button id="add-repo" type="button">Add</button>
+      </div>
+      <p class="hint">Repositories in this list are auto-approved for create/update file confirmations.</p>
+
+      <ul id="repo-list"></ul>
+
+      <div class="footer">
+        <button id="save" type="button">Save</button>
+        <button id="clear-trust" type="button" class="secondary">Clear remembered approvals</button>
+      </div>
+      <div id="status" role="status"></div>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

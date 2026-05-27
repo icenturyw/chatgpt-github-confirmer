@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ChatGPT GitHub Confirmer Options</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 28px;
+        color: #111827;
+        background: #f8fafc;
+        font: 14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      main {
+        max-width: 840px;
+        margin: 0 auto;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 24px;
+      }
+      p {
+        margin: 0 0 20px;
+        color: #475569;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: white;
+        border: 1px solid #e2e8f0;
+      }
+      th, td {
+        padding: 10px;
+        border-bottom: 1px solid #e2e8f0;
+        text-align: left;
+      }
+      th {
+        color: #334155;
+        background: #f1f5f9;
+        font-size: 12px;
+        text-transform: uppercase;
+      }
+      input[type="text"] {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 8px;
+        font: inherit;
+      }
+      button {
+        border: 0;
+        border-radius: 6px;
+        padding: 9px 12px;
+        background: #2563eb;
+        color: white;
+        cursor: pointer;
+        font-weight: 700;
+      }
+      button.secondary {
+        background: #475569;
+      }
+      button.danger {
+        background: #dc2626;
+      }
+      .actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 16px;
+        flex-wrap: wrap;
+      }
+      #status {
+        margin-top: 12px;
+        color: #15803d;
+        min-height: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>ChatGPT GitHub Confirmer Options</h1>
+      <p>The extension only reacts when a GitHub confirmation matches repo, branch, and file. First manual approval remembers the rule, then later matching confirmations are clicked automatically.</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Enabled</th>
+            <th>Repo</th>
+            <th>Branch</th>
+            <th>File</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="rules"></tbody>
+      </table>
+      <div class="actions">
+        <button id="add" type="button" class="secondary">Add rule</button>
+        <button id="save" type="button">Save options</button>
+        <button id="clear-trust" type="button" class="danger">Clear remembered approvals</button>
+      </div>
+      <div id="status" role="status"></div>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>
