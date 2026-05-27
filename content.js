@@ -1,13 +1,16 @@
-(function () {
-const BAR_ID = "chatgpt-github-confirmer-bar";
-const HIGHLIGHT_ATTR = "data-chatgpt-github-confirmer";
-  const CONFIRM_LABELS = ["\u786e\u8ba4", "Confirm", "Update", "Save", "Continue", "Allow"];
-  const DENY_LABELS = ["\u62d2\u7edd", "Cancel", "Deny"];
-  const DETAILS_LABELS = ["\u8be6\u7ec6\u4fe1\u606f", "Details", "Show details"];
+(() => {
+  const DEFAULT_REPO = "icenturyw/chatgpt-github-confirmer";
+  const BAR_ID = "chatgpt-github-confirmer-bar";
+  const HIGHLIGHT_ATTR = "data-chatgpt-github-confirmer";
+  const REPO_PATTERN = /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i;
+  const CONFIRM_LABELS = ["确认", "Confirm", "Update", "Save", "Continue", "Allow"];
+  const DENY_LABELS = ["拒绝", "Cancel", "Deny"];
+  const DETAILS_LABELS = ["详细信息", "Details", "Show details"];
 
   let lastMatch = null;
   let observer = null;
   let stopped = false;
+  let scanTimer = null;
   const clickedDialogs = new WeakSet();
   const pendingClicks = new WeakSet();
 
@@ -19,6 +22,53 @@ const HIGHLIGHT_ATTR = "data-chatgpt-github-confirmer";
     return normalizeText(haystack).toLowerCase().includes(normalizeText(needle).toLowerCase());
   }
 
+  function normalizeRepo(value) {
+    return normalizeText(value)
+      .replace(/^https?:\/\/github\.com\//i, "")
+      .replace(/^github\.com\//i, "")
+      .replace(/\/+$/g, "")
+      .toLowerCase();
+  }
+
+  function isValidRepo(value) {
+    return REPO_PATTERN.test(value);
+  }
+
+  function normalizeRepoList(values) {
+    return Array.from(new Set((values || [])
+      .map(normalizeRepo)
+      .filter(isValidRepo)))
+      .sort();
+  }
+
+  function isWildcard(value) {
+    const normalized = normalizeText(value);
+    return !normalized || normalized === "*";
+  }
+
+  function defaultRule() {
+    return {
+      enabled: true,
+      repo: DEFAULT_REPO,
+      branch: "",
+      file: "*"
+    };
+  }
+
+  function normalizeRule(rule) {
+    const normalizedRepo = normalizeRepo(rule?.repo);
+    if (!normalizedRepo || (normalizedRepo !== "*" && !isValidRepo(normalizedRepo))) return null;
+
+    return {
+      enabled: rule.enabled !== false,
+      repo: normalizedRepo,
+      branch: normalizeText(rule.branch),
+      file: normalizeText(rule.file) || "*",
+      autoConfigured: Boolean(rule.autoConfigured),
+      allowAllRepos: Boolean(rule.allowAllRepos)
+    };
+  }
+
   function isExtensionContextError(error) {
     return String(error?.message || error).includes("Extension context invalidated");
   }
@@ -27,6 +77,7 @@ const HIGHLIGHT_ATTR = "data-chatgpt-github-confirmer";
     if (!isExtensionContextError(error)) throw error;
     stopped = true;
     observer?.disconnect();
+    if (scanTimer) clearTimeout(scanTimer);
     removeBar();
   }
 
@@ -49,61 +100,37 @@ const HIGHLIGHT_ATTR = "data-chatgpt-github-confirmer";
     }
   }
 
+  async function ensureInitialStorage() {
+    const { rules, autoConfig } = await storageGet("sync", ["rules", "autoConfig"], {});
+    const updates = {};
+
+    if (!autoConfig) {
+      updates.autoConfig = {
+        allowAllRepos: false,
+        repos: [DEFAULT_REPO]
+      };
+    }
+
+    if (!Array.isArray(rules)) {
+      updates.rules = [defaultRule()];
+    }
+
+    if (Object.keys(updates).length) {
+      await storageSet("sync", updates);
+    }
+  }
+
   async function getRules() {
     const { rules = [], autoConfig } = await storageGet("sync", ["rules", "autoConfig"], { rules: [], autoConfig: null });
     const configRules = getAutoConfigRules(autoConfig);
+    const storedRules = Array.isArray(rules)
+      ? rules.map(normalizeRule).filter((rule) => rule && rule.enabled !== false)
+      : [];
+
     return [
       ...configRules,
-      ...rules.filter((rule) => rule && rule.enabled !== false)
+      ...storedRules
     ];
-  }
-
-  async function ensureRepoWideRule() {
-    const { rules = [], autoConfig } = await storageGet("sync", ["rules", "autoConfig"], { rules: [], autoConfig: null });
-    const normalizedConfigRepos = normalizeRepoList(autoConfig?.repos || []);
-    const hasDefaultConfigRepo = normalizedConfigRepos.includes("icenturyw/video2subtitles-desktop");
-    if (!hasDefaultConfigRepo) {
-      await storageSet("sync", {
-        autoConfig: {
-          allowAllRepos: Boolean(autoConfig?.allowAllRepos),
-          repos: [...normalizedConfigRepos, "icenturyw/video2subtitles-desktop"]
-        }
-      });
-    }
-
-    const hasRepoWideRule = rules.some((rule) =>
-      rule?.repo === "icenturyw/video2subtitles-desktop"
-      && isWildcard(rule.branch)
-      && isWildcard(rule.file)
-    );
-
-    if (hasRepoWideRule) return;
-
-    await storageSet("sync", {
-      rules: [
-        ...rules,
-        {
-          enabled: true,
-          repo: "icenturyw/video2subtitles-desktop",
-          branch: "",
-          file: "*"
-        }
-      ]
-    });
-  }
-
-  function normalizeRepo(value) {
-    return normalizeText(value)
-      .replace(/^https?:\/\/github\.com\//i, "")
-      .replace(/^github\.com\//i, "")
-      .replace(/\/+$/g, "")
-      .toLowerCase();
-  }
-
-  function normalizeRepoList(values) {
-    return Array.from(new Set((values || [])
-      .map(normalizeRepo)
-      .filter((repo) => /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i.test(repo))));
   }
 
   function getAutoConfigRules(autoConfig) {
@@ -135,15 +162,20 @@ const HIGHLIGHT_ATTR = "data-chatgpt-github-confirmer";
   }
 
   async function trustRule(rule) {
+    const normalizedRule = normalizeRule(rule);
+    if (!normalizedRule || normalizedRule.repo === "*") return;
+
     const trustedRules = await getTrustedRules();
     const trustedRule = {
-      repo: rule.repo || "",
-      branch: "",
-      file: "*",
+      repo: normalizedRule.repo,
+      branch: normalizedRule.branch,
+      file: normalizedRule.file,
       trustedAt: Date.now()
     };
-    trustedRules[ruleKey(rule)] = trustedRule;
-    trustedRules[repoKey(rule.repo)] = trustedRule;
+    trustedRules[ruleKey(trustedRule)] = trustedRule;
+    if (isWildcard(trustedRule.branch) && isWildcard(trustedRule.file)) {
+      trustedRules[repoKey(trustedRule.repo)] = trustedRule;
+    }
     await storageSet("local", { trustedRules });
   }
 
@@ -161,57 +193,54 @@ const HIGHLIGHT_ATTR = "data-chatgpt-github-confirmer";
   }
 
   function repoKey(repo) {
-    return `${normalizeText(repo).toLowerCase()}||*`;
+    return `${normalizeRepo(repo)}||*`;
   }
 
   function trustedMatchesRule(trustedRule, rule) {
-    if (!trustedRule?.repo || normalizeText(trustedRule.repo).toLowerCase() !== normalizeText(rule.repo).toLowerCase()) {
+    const normalizedRule = normalizeRule(rule);
+    if (!normalizedRule || !trustedRule?.repo || normalizeRepo(trustedRule.repo) !== normalizedRule.repo) {
       return false;
     }
 
-    const trustedBranchCovers = isWildcard(rule.branch)
-      || isWildcard(trustedRule.branch)
-      || normalizeText(trustedRule.branch).toLowerCase() === normalizeText(rule.branch).toLowerCase();
-    const trustedFileCovers = isWildcard(rule.file)
-      || isWildcard(trustedRule.file)
-      || normalizeText(trustedRule.file).toLowerCase() === normalizeText(rule.file).toLowerCase();
+    const trustedBranchCovers = isWildcard(trustedRule.branch)
+      || normalizeText(trustedRule.branch).toLowerCase() === normalizeText(normalizedRule.branch).toLowerCase();
+    const trustedFileCovers = isWildcard(trustedRule.file)
+      || normalizeText(trustedRule.file).toLowerCase() === normalizeText(normalizedRule.file).toLowerCase();
     return trustedBranchCovers && trustedFileCovers;
   }
 
   function isTrustedRule(rule, trustedRules) {
-    return Boolean(trustedRules[ruleKey(rule)])
-      || Boolean(trustedRules[repoKey(rule.repo)])
-      || Object.values(trustedRules).some((trustedRule) => trustedMatchesRule(trustedRule, rule));
+    const normalizedRule = normalizeRule(rule);
+    if (!normalizedRule) return false;
+    return Boolean(trustedRules[ruleKey(normalizedRule)])
+      || Boolean(trustedRules[repoKey(normalizedRule.repo)])
+      || Object.values(trustedRules).some((trustedRule) => trustedMatchesRule(trustedRule, normalizedRule));
   }
 
   function migrateTrustedRules(trustedRules) {
-    let changed = false;
+    const migrated = {};
 
     for (const trustedRule of Object.values(trustedRules)) {
-      if (!trustedRule?.repo) continue;
+      const normalizedRepo = normalizeRepo(trustedRule?.repo);
+      if (!isValidRepo(normalizedRepo)) continue;
 
-      const key = repoKey(trustedRule.repo);
-      if (trustedRules[key]) continue;
-
-      trustedRules[key] = {
-        repo: trustedRule.repo,
-        branch: "",
-        file: "*",
+      const cleanRule = {
+        repo: normalizedRepo,
+        branch: normalizeText(trustedRule.branch),
+        file: normalizeText(trustedRule.file) || "*",
         trustedAt: trustedRule.trustedAt || Date.now()
       };
-      changed = true;
+      migrated[ruleKey(cleanRule)] = cleanRule;
+      if (isWildcard(cleanRule.branch) && isWildcard(cleanRule.file)) {
+        migrated[repoKey(cleanRule.repo)] = cleanRule;
+      }
     }
 
-    if (changed) {
-      storageSet("local", { trustedRules });
+    if (Object.keys(migrated).length !== Object.keys(trustedRules).length) {
+      storageSet("local", { trustedRules: migrated });
     }
 
-    return trustedRules;
-  }
-
-  function isWildcard(value) {
-    const normalized = normalizeText(value);
-    return !normalized || normalized === "*";
+    return migrated;
   }
 
   function getDialogCandidates() {
@@ -270,15 +299,15 @@ const HIGHLIGHT_ATTR = "data-chatgpt-github-confirmer";
         includesFolded(text, "Update GitHub file")
         || includesFolded(text, "Create")
         || includesFolded(text, "repository")
-        || includesFolded(text, "\u5171\u4eab\u6570\u636e\u5305\u62ec")
-        || includesFolded(text, "\u4f7f\u7528\u5de5\u5177\u5b58\u5728\u98ce\u9669")
+        || includesFolded(text, "共享数据包括")
+        || includesFolded(text, "使用工具存在风险")
         || includesFolded(text, "AccessTokens")
         || includesFolded(text, "APIKeys")
       );
   }
 
   function buttonText(button) {
-    return normalizeText(button.innerText || button.textContent || button.getAttribute("aria-label"));
+    return normalizeText(button?.innerText || button?.textContent || button?.getAttribute("aria-label"));
   }
 
   function isVisibleButton(button) {
@@ -304,7 +333,7 @@ const HIGHLIGHT_ATTR = "data-chatgpt-github-confirmer";
     if (node.getAttribute("aria-modal") === "true") score += 80;
     if (node.matches?.("[data-radix-dialog-content]")) score += 80;
     if (includesFolded(text, "repository")) score += 30;
-    if (includesFolded(text, "\u786e\u8ba4") || includesFolded(text, "Confirm")) score += 20;
+    if (includesFolded(text, "确认") || includesFolded(text, "Confirm")) score += 20;
     const rect = node.getBoundingClientRect();
     score += Math.max(0, 1000 - Math.round(rect.width * rect.height / 10000));
     return score;
@@ -335,7 +364,8 @@ const HIGHLIGHT_ATTR = "data-chatgpt-github-confirmer";
     const buttons = getButtons(container);
     const nonDenyButtons = buttons.filter((button) => {
       const text = buttonText(button);
-      return !DENY_LABELS.some((label) => text === label || includesFolded(text, label));
+      return !DENY_LABELS.some((label) => text === label || includesFolded(text, label))
+        && !DETAILS_LABELS.some((label) => text === label || includesFolded(text, label));
     });
 
     return nonDenyButtons.at(-1) || null;
@@ -374,12 +404,14 @@ const HIGHLIGHT_ATTR = "data-chatgpt-github-confirmer";
   }
 
   function ruleMatches(text, rule) {
-    if (rule?.allowAllRepos) {
+    const normalizedRule = normalizeRule(rule);
+    if (!normalizedRule) return false;
+    if (normalizedRule.allowAllRepos) {
       return Boolean(extractRepository(text));
     }
-    if (!rule?.repo || !includesFolded(text, rule.repo)) return false;
-    if (!isWildcard(rule.branch) && !includesFolded(text, rule.branch)) return false;
-    if (!isWildcard(rule.file) && !includesFolded(text, rule.file)) return false;
+    if (!includesFolded(text, normalizedRule.repo)) return false;
+    if (!isWildcard(normalizedRule.branch) && !includesFolded(text, normalizedRule.branch)) return false;
+    if (!isWildcard(normalizedRule.file) && !includesFolded(text, normalizedRule.file)) return false;
     return true;
   }
 
@@ -428,7 +460,7 @@ const HIGHLIGHT_ATTR = "data-chatgpt-github-confirmer";
       <div class="gch-title">${trusted ? "Auto-confirm is ON" : "GitHub write matched allowlist"}</div>
       <div class="gch-meta">${escapeHtml(match.repo || match.rule.repo)} / ${escapeHtml(match.rule.branch || "any branch")} / ${escapeHtml(match.rule.file || "any file")}</div>
       <button type="button" class="gch-confirm">${managedByPanel ? "Configured in extension panel" : trusted ? "Stop auto-confirm for this rule" : "Confirm and remember this rule"}</button>
-      <button type="button" class="gch-close" aria-label="Close">x</button>
+      <button type="button" class="gch-close" aria-label="Close">×</button>
     `;
 
     const style = document.createElement("style");
@@ -531,18 +563,17 @@ const HIGHLIGHT_ATTR = "data-chatgpt-github-confirmer";
       const confirmButton = findConfirmButton(dialog);
       if (!confirmButton) continue;
 
-      if (buttonText(confirmButton) === "x") continue;
+      const confirmText = buttonText(confirmButton).toLowerCase();
+      if (confirmText === "x" || confirmText === "×") continue;
 
-      if (rule) {
-        match = {
-          dialog,
-          confirmButton,
-          repo,
-          rule,
-          trusted: rule.autoConfigured || isTrustedRule(rule, trustedRules)
-        };
-        break;
-      }
+      match = {
+        dialog,
+        confirmButton,
+        repo,
+        rule,
+        trusted: rule.autoConfigured || isTrustedRule(rule, trustedRules)
+      };
+      break;
     }
 
     lastMatch = match;
@@ -582,7 +613,8 @@ const HIGHLIGHT_ATTR = "data-chatgpt-github-confirmer";
       }
 
       const latestButton = findConfirmButton(match.dialog);
-      if (latestButton && buttonText(latestButton) !== "x" && isClickableButton(latestButton)) {
+      const latestText = buttonText(latestButton).toLowerCase();
+      if (latestButton && latestText !== "x" && latestText !== "×" && isClickableButton(latestButton)) {
         clickedDialogs.add(match.dialog);
         pendingClicks.delete(match.dialog);
         activateElement(latestButton);
@@ -618,8 +650,8 @@ const HIGHLIGHT_ATTR = "data-chatgpt-github-confirmer";
   }
 
   observer = new MutationObserver(() => {
-    clearTimeout(observer._timer);
-    observer._timer = setTimeout(runScan, 250);
+    clearTimeout(scanTimer);
+    scanTimer = setTimeout(runScan, 250);
   });
 
   observer.observe(document.documentElement, {
@@ -632,5 +664,5 @@ const HIGHLIGHT_ATTR = "data-chatgpt-github-confirmer";
     if (message?.type === "CONFIRM_ALLOWED_GITHUB_ACTION") confirmMatch({ remember: true });
   });
 
-  ensureRepoWideRule().then(runScan).catch(stopIfContextInvalidated);
+  ensureInitialStorage().then(runScan).catch(stopIfContextInvalidated);
 })();
