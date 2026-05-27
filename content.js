@@ -232,9 +232,7 @@
       '[role="dialog"]',
       '[aria-modal="true"]',
       '[data-radix-dialog-content]',
-      "div.fixed",
-      "[data-testid]",
-      "body > div"
+      "div.fixed"
     ];
     const seen = new Set();
     const candidates = [
@@ -246,9 +244,9 @@
       .filter((node) => {
         if (seen.has(node)) return false;
         seen.add(node);
-        if (!isVisibleElement(node)) return false;
+        if (!isLikelyDialogCandidate(node)) return false;
         const text = normalizeText(node.innerText);
-        return looksLikeGithubConfirmationText(text);
+        return looksLikeGithubConfirmationText(text) && findConfirmButton(node);
       })
       .sort((a, b) => scoreDialogCandidate(b) - scoreDialogCandidate(a));
   }
@@ -256,6 +254,8 @@
   function getButtonDerivedDialogCandidates() {
     const candidates = [];
     for (const button of getButtons(document)) {
+      if (isInsideSidebar(button)) continue;
+
       const text = buttonText(button);
       const isConfirmOrDeny = CONFIRM_LABELS.some((label) => text === label || includesFolded(text, label))
         || DENY_LABELS.some((label) => text === label || includesFolded(text, label));
@@ -265,7 +265,7 @@
       let depth = 0;
       while (node && node !== document.body && depth < 8) {
         const nodeText = normalizeText(node.innerText);
-        if (looksLikeGithubConfirmationText(nodeText) && findConfirmButton(node)) {
+        if (isLikelyDialogCandidate(node) && looksLikeGithubConfirmationText(nodeText) && findConfirmButton(node, { allowFallback: false })) {
           candidates.push(node);
           break;
         }
@@ -310,6 +310,64 @@
       && style.pointerEvents !== "none";
   }
 
+  function isExplicitDialogElement(element) {
+    return Boolean(element?.matches?.('[role="dialog"], [aria-modal="true"], [data-radix-dialog-content]'));
+  }
+
+  function isInsideSidebar(element) {
+    return Boolean(element?.closest?.('nav, aside, [role="navigation"], [data-testid*="sidebar" i]'));
+  }
+
+  function isSidebarShapedElement(element) {
+    if (!element) return false;
+
+    const rect = element.getBoundingClientRect();
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    if (!viewportWidth || !viewportHeight) return false;
+
+    const isLeftRail = rect.left <= 4
+      && rect.width <= Math.min(460, viewportWidth * 0.42)
+      && rect.height >= viewportHeight * 0.65;
+    const isRightRail = rect.right >= viewportWidth - 4
+      && rect.width <= Math.min(460, viewportWidth * 0.42)
+      && rect.height >= viewportHeight * 0.65;
+
+    return isLeftRail || isRightRail;
+  }
+
+  function isLikelyDialogCandidate(element) {
+    if (!isVisibleElement(element)) return false;
+    if (element === document.body || element === document.documentElement) return false;
+    if (element.closest?.(`#${BAR_ID}`)) return false;
+    if (isInsideSidebar(element) || isSidebarShapedElement(element)) return false;
+
+    if (isExplicitDialogElement(element)) return true;
+
+    const rect = element.getBoundingClientRect();
+    const style = window.getComputedStyle(element);
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    if (!viewportWidth || !viewportHeight) return false;
+
+    const centerX = viewportWidth / 2;
+    const centerY = viewportHeight / 2;
+    const coversViewportCenter = rect.left <= centerX
+      && rect.right >= centerX
+      && rect.top <= centerY
+      && rect.bottom >= centerY;
+    const hasDialogSize = rect.width >= 280
+      && rect.height >= 120
+      && rect.width <= viewportWidth * 0.95
+      && rect.height <= viewportHeight * 0.95;
+    const isAppShell = rect.width >= viewportWidth * 0.95 && rect.height >= viewportHeight * 0.95;
+
+    return style.position === "fixed"
+      && coversViewportCenter
+      && hasDialogSize
+      && !isAppShell;
+  }
+
   function scoreDialogCandidate(node) {
     const text = normalizeText(node.innerText);
     let score = 0;
@@ -341,11 +399,17 @@
       || buttons.find((button) => labels.some((label) => includesFolded(buttonText(button), label)));
   }
 
-  function findConfirmButton(container) {
+  function findConfirmButton(container, options = {}) {
+    const { allowFallback = true } = options;
     const explicit = findButton(container, CONFIRM_LABELS);
     if (explicit) return explicit;
+    if (!allowFallback) return null;
 
     const buttons = getButtons(container);
+    const hasDialogActionEvidence = buttons.length <= 6
+      && (Boolean(findButton(container, DENY_LABELS)) || Boolean(findButton(container, DETAILS_LABELS)));
+    if (!hasDialogActionEvidence) return null;
+
     const nonDenyButtons = buttons.filter((button) => {
       const text = buttonText(button);
       return !DENY_LABELS.some((label) => text === label || includesFolded(text, label))
