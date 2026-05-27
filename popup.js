@@ -1,4 +1,5 @@
-const DEFAULT_REPO = "icenturyw/video2subtitles-desktop";
+const DEFAULT_REPO = "icenturyw/chatgpt-github-confirmer";
+const REPO_PATTERN = /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i;
 
 const allowAllNode = document.getElementById("allow-all");
 const repoInput = document.getElementById("repo-input");
@@ -6,6 +7,7 @@ const repoListNode = document.getElementById("repo-list");
 const statusNode = document.getElementById("status");
 
 let repos = [];
+let statusTimer = null;
 
 function normalizeRepo(value) {
   return String(value || "")
@@ -17,7 +19,7 @@ function normalizeRepo(value) {
 }
 
 function isValidRepo(value) {
-  return /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i.test(value);
+  return REPO_PATTERN.test(value);
 }
 
 function uniqueRepos(values) {
@@ -26,9 +28,10 @@ function uniqueRepos(values) {
 
 async function getConfig() {
   const { autoConfig } = await chrome.storage.sync.get("autoConfig");
+  const hasStoredRepos = Array.isArray(autoConfig?.repos);
   return {
     allowAllRepos: Boolean(autoConfig?.allowAllRepos),
-    repos: uniqueRepos(autoConfig?.repos?.length ? autoConfig.repos : [DEFAULT_REPO])
+    repos: uniqueRepos(hasStoredRepos ? autoConfig.repos : [DEFAULT_REPO])
   };
 }
 
@@ -49,23 +52,27 @@ function escapeHtml(value) {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 function showStatus(message) {
   statusNode.textContent = message;
-  setTimeout(() => {
+  if (statusTimer) clearTimeout(statusTimer);
+  statusTimer = setTimeout(() => {
     statusNode.textContent = "";
   }, 1800);
 }
 
 async function save() {
+  repos = uniqueRepos(repos);
   await chrome.storage.sync.set({
     autoConfig: {
       allowAllRepos: allowAllNode.checked,
-      repos: uniqueRepos(repos)
+      repos
     }
   });
+  renderRepos();
   showStatus("Saved");
 }
 
