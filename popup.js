@@ -1,5 +1,4 @@
-const DEFAULT_REPO = "icenturyw/chatgpt-github-confirmer";
-const REPO_PATTERN = /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i;
+const { DEFAULT_REPO, normalizeRepo, isValidRepo, uniqueRepos } = GHC;
 
 const allowAllNode = document.getElementById("allow-all");
 const repoInput = document.getElementById("repo-input");
@@ -7,24 +6,8 @@ const repoListNode = document.getElementById("repo-list");
 const statusNode = document.getElementById("status");
 
 let repos = [];
+let originalAllowAllRepos = false;
 let statusTimer = null;
-
-function normalizeRepo(value) {
-  return String(value || "")
-    .trim()
-    .replace(/^https?:\/\/github\.com\//i, "")
-    .replace(/^github\.com\//i, "")
-    .replace(/\/+$/g, "")
-    .toLowerCase();
-}
-
-function isValidRepo(value) {
-  return REPO_PATTERN.test(value);
-}
-
-function uniqueRepos(values) {
-  return Array.from(new Set(values.map(normalizeRepo).filter(isValidRepo))).sort();
-}
 
 async function getConfig() {
   const { autoConfig } = await chrome.storage.sync.get("autoConfig");
@@ -64,7 +47,18 @@ function showStatus(message) {
   }, 1800);
 }
 
+function confirmAllowAllIfNeeded() {
+  if (!allowAllNode.checked || originalAllowAllRepos) return true;
+  return window.confirm("Auto-allow all repositories will automatically approve every detected ChatGPT GitHub confirmation. Continue?");
+}
+
 async function save() {
+  if (!confirmAllowAllIfNeeded()) {
+    allowAllNode.checked = originalAllowAllRepos;
+    showStatus("Auto-allow all was not enabled");
+    return;
+  }
+
   repos = uniqueRepos(repos);
   await chrome.storage.sync.set({
     autoConfig: {
@@ -72,6 +66,7 @@ async function save() {
       repos
     }
   });
+  originalAllowAllRepos = allowAllNode.checked;
   renderRepos();
   showStatus("Saved");
 }
@@ -96,12 +91,14 @@ repoInput.addEventListener("keydown", (event) => {
 document.getElementById("save").addEventListener("click", save);
 
 document.getElementById("clear-trust").addEventListener("click", async () => {
+  if (!window.confirm("Clear all remembered approvals? This cannot be undone.")) return;
   await chrome.storage.local.set({ trustedRules: {} });
   showStatus("Remembered approvals cleared");
 });
 
 getConfig().then((config) => {
   allowAllNode.checked = config.allowAllRepos;
+  originalAllowAllRepos = config.allowAllRepos;
   repos = config.repos;
   renderRepos();
 });
