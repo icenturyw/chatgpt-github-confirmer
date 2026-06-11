@@ -49,7 +49,7 @@ function showStatus(message) {
 
 function confirmAllowAllIfNeeded() {
   if (!allowAllNode.checked || originalAllowAllRepos) return true;
-  return window.confirm("Auto-allow all repositories will automatically approve every detected ChatGPT GitHub confirmation. Continue?");
+  return window.confirm("Auto-allow all repositories will automatically approve every detected ChatGPT GitHub or local Git confirmation. Continue?");
 }
 
 async function save() {
@@ -74,7 +74,7 @@ async function save() {
 document.getElementById("add-repo").addEventListener("click", () => {
   const repo = normalizeRepo(repoInput.value);
   if (!isValidRepo(repo)) {
-    showStatus("Use owner/repository format");
+    showStatus("Use owner/repository or local repository name");
     return;
   }
   repos = uniqueRepos([...repos, repo]);
