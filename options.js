@@ -8,7 +8,7 @@ function rowTemplate(rule = {}) {
   const tr = document.createElement("tr");
   tr.innerHTML = `
     <td><input class="enabled" type="checkbox" ${rule.enabled === false ? "" : "checked"}></td>
-    <td><input class="repo" type="text" placeholder="owner/repo" value="${escapeAttr(rule.repo || "")}"></td>
+    <td><input class="repo" type="text" placeholder="owner/repo or local repo" value="${escapeAttr(rule.repo || "")}"></td>
     <td><input class="branch" type="text" placeholder="blank or * = any" value="${escapeAttr(rule.branch || "")}"></td>
     <td><input class="file" type="text" placeholder="* = any file" value="${escapeAttr(rule.file || "")}"></td>
     <td><button class="danger remove" type="button">Remove</button></td>

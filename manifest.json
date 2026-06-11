@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT GitHub Confirmer",
-  "version": "1.4.0",
-  "description": "Configurable auto-approval helper for ChatGPT GitHub confirmations.",
+  "version": "1.5.0",
+  "description": "Configurable auto-approval helper for ChatGPT GitHub and local Git confirmations.",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
     "https://chatgpt.com/*",
@@ -30,7 +30,7 @@
       "suggested_key": {
         "default": "Alt+Shift+Y"
       },
-      "description": "Confirm the currently visible allowed GitHub action"
+      "description": "Confirm the currently visible allowed GitHub or local Git action"
     }
   },
   "action": {

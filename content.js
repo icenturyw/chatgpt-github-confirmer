@@ -11,7 +11,7 @@
 
   const BAR_ID = "chatgpt-github-confirmer-bar";
   const HIGHLIGHT_ATTR = "data-chatgpt-github-confirmer";
-  const CONFIRM_LABELS = ["确认", "Confirm", "Update", "Save", "Continue", "Allow"];
+  const CONFIRM_LABELS = ["确认", "允许", "Confirm", "Update", "Save", "Continue", "Allow"];
   const DENY_LABELS = ["拒绝", "Cancel", "Deny"];
   const DETAILS_LABELS = ["详细信息", "Details", "Show details"];
   const INITIAL_CLICK_DELAY_MS = 3000;
@@ -26,7 +26,17 @@
   const pendingClicks = new WeakSet();
 
   function includesFolded(haystack, needle) {
-    return normalizeText(haystack).toLowerCase().includes(normalizeText(needle).toLowerCase());
+    const foldedHaystack = normalizeText(haystack).toLowerCase();
+    const foldedNeedle = normalizeText(needle).toLowerCase();
+    if (foldedNeedle === "github" && looksLikeLocalGitText(foldedHaystack)) return true;
+    return foldedHaystack.includes(foldedNeedle);
+  }
+
+  function looksLikeLocalGitText(foldedText) {
+    return foldedText.includes("git")
+      && foldedText.includes("repository")
+      && (foldedText.includes("apply git patch") || foldedText.includes("apply a git patch") || foldedText.includes("overwrite file"))
+      && (foldedText.includes("allowed write paths") || foldedText.includes("create or overwrite"));
   }
 
   function isWildcard(value) {
@@ -302,6 +312,11 @@
   }
 
   function looksLikeGithubConfirmationText(text) {
+    if (text.length <= 20) return false;
+    return looksLikeGithubWriteConfirmationText(text) || looksLikeLocalGitWriteConfirmationText(text);
+  }
+
+  function looksLikeGithubWriteConfirmationText(text) {
     return text.length > 20
       && includesFolded(text, "GitHub")
       && (
@@ -316,6 +331,20 @@
         || includesFolded(text, "AccessTokens")
         || includesFolded(text, "APIKeys")
       );
+  }
+
+  function looksLikeLocalGitWriteConfirmationText(text) {
+    const hasGitToolBrand = includesFolded(text, "git") || includesFolded(text, "Git repository");
+    const hasWriteAction = includesFolded(text, "Overwrite file in Git repository")
+      || includesFolded(text, "Apply Git patch to repository")
+      || includesFolded(text, "create or overwrite")
+      || includesFolded(text, "apply a Git patch")
+      || includesFolded(text, "modifying files under allowed write paths")
+      || includesFolded(text, "modifying files under allowed write paths only");
+    const hasReviewHint = includesFolded(text, "details")
+      || includesFolded(text, "tool")
+      || includesFolded(text, "allowed write paths");
+    return hasGitToolBrand && hasWriteAction && hasReviewHint && includesFolded(text, "repository");
   }
 
   function buttonText(button) {
@@ -580,6 +609,11 @@
       /github\.com\/([a-z0-9_.-]+\/[a-z0-9_.-]+)/i,
       /\b([a-z0-9_.-]+\/[a-z0-9_.-]+)\b/i
     ];
+
+    const localRepoMatch = normalized.match(/['"]([a-z0-9_.-]+)['"]\s+repository/i);
+    if (localRepoMatch?.[1]) {
+      return normalizeRepo(localRepoMatch[1]);
+    }
 
     for (const pattern of patterns) {
       const match = normalized.match(pattern);

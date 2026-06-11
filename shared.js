@@ -1,6 +1,6 @@
 (function (global) {
   const DEFAULT_REPO = "icenturyw/chatgpt-github-confirmer";
-  const REPO_PATTERN = /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i;
+  const REPO_PATTERN = /^(?:[a-z0-9_.-]+\/[a-z0-9_.-]+|[a-z0-9_.-]+)$/i;
 
   function normalizeText(value) {
     return String(value || "").replace(/\s+/g, " ").trim();
